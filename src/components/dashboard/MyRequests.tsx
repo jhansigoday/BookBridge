@@ -5,6 +5,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ContactExchange } from './ContactExchange';
 import { toast } from '@/hooks/use-toast';
 import { BookOpen, Clock, CheckCircle, XCircle } from 'lucide-react';
 
@@ -22,10 +23,21 @@ interface BookRequest {
   };
 }
 
+interface ContactExchange {
+  id: string;
+  request_id: string;
+  donor_phone: string;
+  donor_address: string;
+  requester_phone: string;
+  requester_address: string;
+}
+
 export const MyRequests = () => {
   const [sentRequests, setSentRequests] = useState<BookRequest[]>([]);
   const [receivedRequests, setReceivedRequests] = useState<BookRequest[]>([]);
+  const [contactExchanges, setContactExchanges] = useState<{ [key: string]: ContactExchange }>({});
   const [loading, setLoading] = useState(true);
+  const [processingRequests, setProcessingRequests] = useState<Set<string>>(new Set());
   const { user } = useAuth();
 
   const fetchRequests = async () => {
@@ -58,6 +70,27 @@ export const MyRequests = () => {
 
       setSentRequests(sent || []);
       setReceivedRequests(received || []);
+
+      // Fetch contact exchanges for approved requests
+      const allRequests = [...(sent || []), ...(received || [])];
+      const approvedRequestIds = allRequests
+        .filter(req => req.status === 'approved')
+        .map(req => req.id);
+
+      if (approvedRequestIds.length > 0) {
+        const { data: exchanges, error: exchangeError } = await supabase
+          .from('contact_exchanges')
+          .select('*')
+          .in('request_id', approvedRequestIds);
+
+        if (exchangeError) throw exchangeError;
+
+        const exchangeMap: { [key: string]: ContactExchange } = {};
+        exchanges?.forEach(exchange => {
+          exchangeMap[exchange.request_id] = exchange;
+        });
+        setContactExchanges(exchangeMap);
+      }
     } catch (error) {
       console.error('Error fetching requests:', error);
       toast({
@@ -74,26 +107,52 @@ export const MyRequests = () => {
     fetchRequests();
   }, [user]);
 
+  const createNotification = async (userId: string, type: string, title: string, message: string) => {
+    try {
+      await supabase.rpc('create_book_notification', {
+        user_id: userId,
+        notification_type: type,
+        notification_title: title,
+        notification_message: message
+      });
+    } catch (error) {
+      console.error('Error creating notification:', error);
+    }
+  };
+
   const handleRequestResponse = async (requestId: string, status: 'approved' | 'rejected', requesterId: string, bookTitle: string) => {
+    if (processingRequests.has(requestId)) return;
+
+    setProcessingRequests(prev => new Set(prev).add(requestId));
+
     try {
       const { error } = await supabase
         .from('book_requests')
-        .update({ status })
+        .update({ 
+          status,
+          updated_at: new Date().toISOString()
+        })
         .eq('id', requestId);
 
       if (error) throw error;
 
       // Create notification for requester
-      const { error: notificationError } = await supabase
-        .from('notifications')
-        .insert({
-          userid: requesterId,
-          type: 'request_response',
-          title: `Book Request ${status === 'approved' ? 'Approved' : 'Rejected'}`,
-          message: `Your request for "${bookTitle}" has been ${status}.`
-        });
+      await createNotification(
+        requesterId,
+        'request_response',
+        `Book Request ${status === 'approved' ? 'Approved' : 'Rejected'}`,
+        `Your request for "${bookTitle}" has been ${status}.`
+      );
 
-      if (notificationError) throw notificationError;
+      // Create notification for donor
+      if (user) {
+        await createNotification(
+          user.id,
+          'request_action',
+          'Request Updated',
+          `You have ${status} the request for "${bookTitle}".`
+        );
+      }
 
       toast({
         title: "Request Updated",
@@ -107,6 +166,12 @@ export const MyRequests = () => {
         title: "Error",
         description: "Failed to update request. Please try again.",
         variant: "destructive",
+      });
+    } finally {
+      setProcessingRequests(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(requestId);
+        return newSet;
       });
     }
   };
@@ -165,24 +230,35 @@ export const MyRequests = () => {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {sentRequests.map((request) => (
-              <Card key={request.id} className="bg-white/95 backdrop-blur-sm shadow-lg">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{request.books.title}</CardTitle>
-                    <Badge className={getStatusColor(request.status)}>
-                      {getStatusIcon(request.status)}
-                      <span className="ml-1 capitalize">{request.status}</span>
-                    </Badge>
-                  </div>
-                  <CardDescription>by {request.books.author}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-gray-600 mb-2">{request.message}</p>
-                  <p className="text-xs text-gray-500">
-                    Requested on {new Date(request.created_at).toLocaleDateString()}
-                  </p>
-                </CardContent>
-              </Card>
+              <div key={request.id} className="space-y-4">
+                <Card className="bg-white/95 backdrop-blur-sm shadow-lg">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">{request.books.title}</CardTitle>
+                      <Badge className={getStatusColor(request.status)}>
+                        {getStatusIcon(request.status)}
+                        <span className="ml-1 capitalize">{request.status}</span>
+                      </Badge>
+                    </div>
+                    <CardDescription>by {request.books.author}</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-gray-600 mb-2">{request.message}</p>
+                    <p className="text-xs text-gray-500">
+                      Requested on {new Date(request.created_at).toLocaleDateString()}
+                    </p>
+                  </CardContent>
+                </Card>
+
+                {request.status === 'approved' && (
+                  <ContactExchange
+                    requestId={request.id}
+                    isDonor={false}
+                    onContactShared={fetchRequests}
+                    existingExchange={contactExchanges[request.id]}
+                  />
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -201,43 +277,56 @@ export const MyRequests = () => {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             {receivedRequests.map((request) => (
-              <Card key={request.id} className="bg-white/95 backdrop-blur-sm shadow-lg">
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-lg">{request.books.title}</CardTitle>
-                    <Badge className={getStatusColor(request.status)}>
-                      {getStatusIcon(request.status)}
-                      <span className="ml-1 capitalize">{request.status}</span>
-                    </Badge>
-                  </div>
-                  <CardDescription>by {request.books.author}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <p className="text-sm text-gray-600">{request.message}</p>
-                  <p className="text-xs text-gray-500">
-                    Requested on {new Date(request.created_at).toLocaleDateString()}
-                  </p>
-                  {request.status === 'pending' && (
-                    <div className="flex gap-2">
-                      <Button
-                        onClick={() => handleRequestResponse(request.id, 'approved', request.requester_id, request.books.title)}
-                        size="sm"
-                        className="bg-green-600 hover:bg-green-700"
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        onClick={() => handleRequestResponse(request.id, 'rejected', request.requester_id, request.books.title)}
-                        size="sm"
-                        variant="outline"
-                        className="border-red-200 text-red-600 hover:bg-red-50"
-                      >
-                        Reject
-                      </Button>
+              <div key={request.id} className="space-y-4">
+                <Card className="bg-white/95 backdrop-blur-sm shadow-lg">
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-lg">{request.books.title}</CardTitle>
+                      <Badge className={getStatusColor(request.status)}>
+                        {getStatusIcon(request.status)}
+                        <span className="ml-1 capitalize">{request.status}</span>
+                      </Badge>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                    <CardDescription>by {request.books.author}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <p className="text-sm text-gray-600">{request.message}</p>
+                    <p className="text-xs text-gray-500">
+                      Requested on {new Date(request.created_at).toLocaleDateString()}
+                    </p>
+                    {request.status === 'pending' && (
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => handleRequestResponse(request.id, 'approved', request.requester_id, request.books.title)}
+                          size="sm"
+                          className="bg-green-600 hover:bg-green-700"
+                          disabled={processingRequests.has(request.id)}
+                        >
+                          {processingRequests.has(request.id) ? 'Processing...' : 'Approve'}
+                        </Button>
+                        <Button
+                          onClick={() => handleRequestResponse(request.id, 'rejected', request.requester_id, request.books.title)}
+                          size="sm"
+                          variant="outline"
+                          className="border-red-200 text-red-600 hover:bg-red-50"
+                          disabled={processingRequests.has(request.id)}
+                        >
+                          {processingRequests.has(request.id) ? 'Processing...' : 'Reject'}
+                        </Button>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {request.status === 'approved' && (
+                  <ContactExchange
+                    requestId={request.id}
+                    isDonor={true}
+                    onContactShared={fetchRequests}
+                    existingExchange={contactExchanges[request.id]}
+                  />
+                )}
+              </div>
             ))}
           </div>
         )}

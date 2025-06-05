@@ -6,27 +6,29 @@ import { BooksList } from './BooksList';
 import { DonateBooks } from './DonateBooks';
 import { MyRequests } from './MyRequests';
 import { Notifications } from './Notifications';
-import { LogOut, Book, Heart, Bell, User } from 'lucide-react';
-import { toast } from '@/hooks/use-toast';
+import { FreeBooks } from './FreeBooks';
+import { BookOpen, Plus, MessageSquare, Bell, Eye } from 'lucide-react';
 
-type DashboardView = 'books' | 'donate' | 'requests' | 'notifications';
+type ActiveTab = 'browse' | 'free-books' | 'donate' | 'requests' | 'notifications';
 
 export const Dashboard = () => {
-  const { user, signOut } = useAuth();
-  const [currentView, setCurrentView] = useState<DashboardView>('books');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('browse');
+  const { signOut } = useAuth();
 
-  const handleSignOut = async () => {
-    await signOut();
-    toast({
-      title: "Signed out",
-      description: "You have been successfully signed out.",
-    });
-  };
+  const tabs = [
+    { id: 'browse' as const, label: 'Browse Books', icon: BookOpen },
+    { id: 'free-books' as const, label: 'Free Books', icon: Eye },
+    { id: 'donate' as const, label: 'Donate Books', icon: Plus },
+    { id: 'requests' as const, label: 'My Requests', icon: MessageSquare },
+    { id: 'notifications' as const, label: 'Notifications', icon: Bell },
+  ];
 
-  const renderView = () => {
-    switch (currentView) {
-      case 'books':
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'browse':
         return <BooksList />;
+      case 'free-books':
+        return <FreeBooks />;
       case 'donate':
         return <DonateBooks />;
       case 'requests':
@@ -42,68 +44,50 @@ export const Dashboard = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-400 via-blue-500 to-blue-600">
       {/* Header */}
       <header className="bg-white/10 backdrop-blur-sm border-b border-white/20">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-white">BridgeBook</h1>
-          <div className="flex items-center gap-4">
-            <span className="text-white/80 flex items-center gap-2">
-              <User size={16} />
-              {user?.email}
-            </span>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16">
+            <div className="flex items-center">
+              <h1 className="text-2xl font-bold text-white">BridgeBook</h1>
+            </div>
             <Button
-              onClick={handleSignOut}
+              onClick={signOut}
               variant="outline"
-              size="sm"
               className="bg-white/10 border-white/20 text-white hover:bg-white/20"
             >
-              <LogOut size={16} className="mr-2" />
               Sign Out
             </Button>
           </div>
         </div>
       </header>
 
-      {/* Navigation */}
+      {/* Navigation Tabs */}
       <nav className="bg-white/5 backdrop-blur-sm border-b border-white/10">
-        <div className="container mx-auto px-4 py-3">
-          <div className="flex gap-4">
-            <Button
-              onClick={() => setCurrentView('books')}
-              variant={currentView === 'books' ? 'secondary' : 'ghost'}
-              className={currentView === 'books' ? 'bg-white text-blue-600' : 'text-white hover:bg-white/10'}
-            >
-              <Book size={16} className="mr-2" />
-              Browse Books
-            </Button>
-            <Button
-              onClick={() => setCurrentView('donate')}
-              variant={currentView === 'donate' ? 'secondary' : 'ghost'}
-              className={currentView === 'donate' ? 'bg-white text-blue-600' : 'text-white hover:bg-white/10'}
-            >
-              <Heart size={16} className="mr-2" />
-              Donate Books
-            </Button>
-            <Button
-              onClick={() => setCurrentView('requests')}
-              variant={currentView === 'requests' ? 'secondary' : 'ghost'}
-              className={currentView === 'requests' ? 'bg-white text-blue-600' : 'text-white hover:bg-white/10'}
-            >
-              My Requests
-            </Button>
-            <Button
-              onClick={() => setCurrentView('notifications')}
-              variant={currentView === 'notifications' ? 'secondary' : 'ghost'}
-              className={currentView === 'notifications' ? 'bg-white text-blue-600' : 'text-white hover:bg-white/10'}
-            >
-              <Bell size={16} className="mr-2" />
-              Notifications
-            </Button>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex space-x-8 overflow-x-auto">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center space-x-2 py-4 px-2 border-b-2 font-medium text-sm whitespace-nowrap ${
+                    activeTab === tab.id
+                      ? 'border-white text-white'
+                      : 'border-transparent text-white/70 hover:text-white hover:border-white/30'
+                  }`}
+                >
+                  <Icon size={18} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </nav>
 
       {/* Main Content */}
-      <main className="container mx-auto px-4 py-8">
-        {renderView()}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {renderContent()}
       </main>
     </div>
   );

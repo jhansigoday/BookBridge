@@ -53,38 +53,85 @@ export type Database = {
       books: {
         Row: {
           author: string
+          category: string | null
+          condition: string | null
           coverurl: string | null
           createdat: string | null
           description: string | null
           donorid: string | null
           id: string
+          is_free_to_read: boolean | null
           isfeatured: boolean | null
           status: string | null
           title: string
         }
         Insert: {
           author: string
+          category?: string | null
+          condition?: string | null
           coverurl?: string | null
           createdat?: string | null
           description?: string | null
           donorid?: string | null
           id?: string
+          is_free_to_read?: boolean | null
           isfeatured?: boolean | null
           status?: string | null
           title: string
         }
         Update: {
           author?: string
+          category?: string | null
+          condition?: string | null
           coverurl?: string | null
           createdat?: string | null
           description?: string | null
           donorid?: string | null
           id?: string
+          is_free_to_read?: boolean | null
           isfeatured?: boolean | null
           status?: string | null
           title?: string
         }
         Relationships: []
+      }
+      contact_exchanges: {
+        Row: {
+          created_at: string | null
+          donor_address: string | null
+          donor_phone: string | null
+          id: string
+          request_id: string
+          requester_address: string | null
+          requester_phone: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          donor_address?: string | null
+          donor_phone?: string | null
+          id?: string
+          request_id: string
+          requester_address?: string | null
+          requester_phone?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          donor_address?: string | null
+          donor_phone?: string | null
+          id?: string
+          request_id?: string
+          requester_address?: string | null
+          requester_phone?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_exchanges_request_id_fkey"
+            columns: ["request_id"]
+            isOneToOne: false
+            referencedRelation: "book_requests"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       notifications: {
         Row: {
@@ -145,7 +192,15 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      create_book_notification: {
+        Args: {
+          user_id: string
+          notification_type: string
+          notification_title: string
+          notification_message: string
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       [_ in never]: never

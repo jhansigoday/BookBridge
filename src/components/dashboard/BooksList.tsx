@@ -17,11 +17,14 @@ interface Book {
   status: string;
   isfeatured: boolean;
   donorid: string;
+  category: string;
+  condition: string;
 }
 
 export const BooksList = () => {
   const [books, setBooks] = useState<Book[]>([]);
   const [loading, setLoading] = useState(true);
+  const [requestingBooks, setRequestingBooks] = useState<Set<string>>(new Set());
   const { user } = useAuth();
 
   const fetchBooks = async () => {
@@ -30,6 +33,7 @@ export const BooksList = () => {
         .from('books')
         .select('*')
         .eq('status', 'available')
+        .eq('is_free_to_read', false)
         .order('createdat', { ascending: false });
 
       if (error) throw error;
@@ -50,8 +54,23 @@ export const BooksList = () => {
     fetchBooks();
   }, []);
 
+  const createNotification = async (userId: string, type: string, title: string, message: string) => {
+    try {
+      await supabase.rpc('create_book_notification', {
+        user_id: userId,
+        notification_type: type,
+        notification_title: title,
+        notification_message: message
+      });
+    } catch (error) {
+      console.error('Error creating notification:', error);
+    }
+  };
+
   const handleRequestBook = async (book: Book) => {
-    if (!user) return;
+    if (!user || requestingBooks.has(book.id)) return;
+
+    setRequestingBooks(prev => new Set(prev).add(book.id));
 
     try {
       // Check if user already requested this book
@@ -85,16 +104,20 @@ export const BooksList = () => {
       if (requestError) throw requestError;
 
       // Create notification for donor
-      const { error: notificationError } = await supabase
-        .from('notifications')
-        .insert({
-          userid: book.donorid,
-          type: 'book_request',
-          title: 'New Book Request',
-          message: `Someone wants to borrow your book "${book.title}"`
-        });
+      await createNotification(
+        book.donorid,
+        'book_request',
+        'New Book Request',
+        `Someone wants to borrow your book "${book.title}"`
+      );
 
-      if (notificationError) throw notificationError;
+      // Create notification for requester
+      await createNotification(
+        user.id,
+        'request_sent',
+        'Request Sent',
+        `Your request for "${book.title}" has been sent to the donor.`
+      );
 
       toast({
         title: "Request Sent",
@@ -108,7 +131,36 @@ export const BooksList = () => {
         description: "Failed to send book request. Please try again.",
         variant: "destructive",
       });
+    } finally {
+      setRequestingBooks(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(book.id);
+        return newSet;
+      });
     }
+  };
+
+  const getCategoryColor = (category: string) => {
+    const colors = {
+      academic: 'bg-blue-100 text-blue-800 border-blue-200',
+      competitive: 'bg-purple-100 text-purple-800 border-purple-200',
+      adventure: 'bg-green-100 text-green-800 border-green-200',
+      funny: 'bg-yellow-100 text-yellow-800 border-yellow-200',
+      romance: 'bg-pink-100 text-pink-800 border-pink-200',
+      mystery: 'bg-indigo-100 text-indigo-800 border-indigo-200',
+      biography: 'bg-gray-100 text-gray-800 border-gray-200',
+      'self-help': 'bg-orange-100 text-orange-800 border-orange-200'
+    };
+    return colors[category as keyof typeof colors] || 'bg-gray-100 text-gray-800 border-gray-200';
+  };
+
+  const getConditionColor = (condition: string) => {
+    const colors = {
+      excellent: 'bg-green-100 text-green-800 border-green-200',
+      good: 'bg-blue-100 text-blue-800 border-blue-200',
+      fair: 'bg-yellow-100 text-yellow-800 border-yellow-200'
+    };
+    return colors[condition as keyof typeof colors] || 'bg-gray-100 text-gray-800 border-gray-200';
   };
 
   if (loading) {
@@ -139,9 +191,23 @@ export const BooksList = () => {
           {books.map((book) => (
             <Card key={book.id} className="bg-white/95 backdrop-blur-sm shadow-lg hover:shadow-xl transition-shadow">
               <CardHeader>
-                {book.isfeatured && (
-                  <Badge className="w-fit mb-2 bg-yellow-500 text-yellow-900">Featured</Badge>
-                )}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex gap-2">
+                    {book.category && (
+                      <Badge className={getCategoryColor(book.category)}>
+                        {book.category}
+                      </Badge>
+                    )}
+                    {book.condition && (
+                      <Badge className={getConditionColor(book.condition)}>
+                        {book.condition}
+                      </Badge>
+                    )}
+                  </div>
+                  {book.isfeatured && (
+                    <Badge className="bg-yellow-500 text-yellow-900">Featured</Badge>
+                  )}
+                </div>
                 <CardTitle className="text-lg">{book.title}</CardTitle>
                 <CardDescription className="flex items-center gap-2">
                   <User size={14} />
@@ -161,8 +227,9 @@ export const BooksList = () => {
                       onClick={() => handleRequestBook(book)}
                       size="sm"
                       className="bg-blue-600 hover:bg-blue-700"
+                      disabled={requestingBooks.has(book.id)}
                     >
-                      Request Book
+                      {requestingBooks.has(book.id) ? 'Requesting...' : 'Request Book'}
                     </Button>
                   )}
                   {user?.id === book.donorid && (
