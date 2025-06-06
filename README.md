@@ -5,8 +5,6 @@
 
 ## 📖 Project Info
 
-**Live URL**: [Coming Soon — will update after deployment]
-
 ## 📂 How can I edit this code?
 
 You can work with this project using several methods:
